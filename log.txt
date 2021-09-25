@@ -1,0 +1,19 @@
+
+    #######################################
+    # Youtube Dataset Collector           #
+    # by Dr. Watthanasak Jeamwatthanachai #
+    #######################################
+    
+[youtube-crawler] videos found: 20
+[youtube-crawler] videos found: 37
+[youtube-crawler] videos found: 51
+[youtube-crawler] videos found: 64
+[youtube-crawler] videos found: 83
+[youtube-crawler] videos found: 103
+[youtube-crawler] videos found: 123
+[youtube-crawler] videos found: 143
+[youtube-crawler] videos found: 162
+[youtube-crawler] videos found: 182
+
+
+https://www.googleapis.com/youtube/v3/search?&type=video&key=API_KEY&q=KEYWORDS&channelId=CHANNEL

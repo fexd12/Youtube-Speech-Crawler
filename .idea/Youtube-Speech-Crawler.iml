@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="PYTHON_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/youtube" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/closed_caption" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/downloader" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/search_engine" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/data_api" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/search_engine/handlers" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube/search_engine/internal" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/youtube_wrapper" isTestSource="false" />
+    </content>
+    <orderEntry type="jdk" jdkName="Python 3.9 (Youtube-Speech-Crawler)" jdkType="Python SDK" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+  <component name="PackageRequirementsSettings">
+    <option name="requirementsPath" value="requirements2.txt" />
+  </component>
+  <component name="PyDocumentationSettings">
+    <option name="format" value="PLAIN" />
+    <option name="myDocStringFormat" value="Plain" />
+  </component>
+  <component name="TemplatesService">
+    <option name="TEMPLATE_CONFIGURATION" value="Jinja2" />
+    <option name="TEMPLATE_FOLDERS">
+      <list>
+        <option value="$MODULE_DIR$/webdemo/templates" />
+      </list>
+    </option>
+  </component>
+</module>
