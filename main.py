@@ -4,8 +4,7 @@ from pathlib import Path
 
 from django.utils.text import slugify
 
-from youtube.data_api import YoutubeDataAPI
-from youtube.data_api import constants
+from youtube.data_api import YoutubeDataAPI,constants
 from youtube.downloader import get_youtube_stream
 
 BASE_DIR = os.path.dirname(os.path.abspath('__file__'))
@@ -36,13 +35,13 @@ def search_youtube_video_by_query(query, channel=None, language='th', limit=9999
             Path(target_dir).mkdir(parents=True, exist_ok=True)
             json_abs_path = os.path.join(target_dir, 'meta.json')
             json.dump(data, open(json_abs_path, 'w', encoding='utf-8'), indent=2, ensure_ascii=False)
-            get_youtube_stream(json_abs_path, DATA_DIR)
+            get_youtube_stream(json_abs_path, DATA_DIR,verbose=verbose)
 
     def search_youtube_video_by_query(query, channel=None, language=language, limit=limit, api_version='3', verbose=verbose):
         if verbose:
             print(f'[{module}] Start Youtube Search Engine via Data API V{api_version}')
             print(f'[{module}] Query: {query}' + f' | Channel: {channel}' if channel else '')
-        youtube = YoutubeDataAPI(constants.api_key, api_version=api_version)
+        youtube = YoutubeDataAPI( api_version=api_version)
         videos = youtube.search(query, channel_id=channel, max_results=limit, region_code=language)
         if verbose:
             print(f'[{module}] videos found: {len(videos)}')
@@ -60,12 +59,12 @@ def main():
     """)
 
     opts = {
-        'language': 'th',
+        'language': 'br',
         'limit': 9999,
         'verbose': True,
     }
 
-    search_youtube_video_by_query('', channel='UCovADuA7KBuMFORurTzL86A', **opts)
+    search_youtube_video_by_query('run', channel=None, **opts)
 
 
 if __name__ == "__main__":

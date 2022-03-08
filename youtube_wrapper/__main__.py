@@ -18,6 +18,7 @@ from youtube_wrapper import Stream, StreamQuery
 from youtube_wrapper.helpers import install_proxy
 from youtube_wrapper.metadata import YouTubeMetadata
 from youtube_wrapper.monostate import Monostate
+from pytube.innertube import InnerTube
 
 logger = logging.getLogger(__name__)
 
@@ -31,37 +32,36 @@ class YouTube:
         on_progress_callback: Optional[Callable[[Any, bytes, int], None]] = None,
         on_complete_callback: Optional[Callable[[Any, Optional[str]], None]] = None,
         proxies: Dict[str, str] = None,
+        use_oauth: bool = False,
+        allow_oauth_cache: bool = True
     ):
         """Construct a :class:`YouTube <YouTube>`.
 
         :param str url:
             A valid YouTube watch URL.
-        :param bool defer_prefetch_init:
-            Defers executing any network requests.
         :param func on_progress_callback:
             (Optional) User defined callback function for stream download
             progress events.
         :param func on_complete_callback:
             (Optional) User defined callback function for stream download
             complete events.
-
+        :param dict proxies:
+            (Optional) A dict mapping protocol to proxy address which will be used by pytube.
+        :param bool use_oauth:
+            (Optional) Prompt the user to authenticate to YouTube.
+            If allow_oauth_cache is set to True, the user should only be prompted once.
+        :param bool allow_oauth_cache:
+            (Optional) Cache OAuth tokens locally on the machine. Defaults to True.
+            These tokens are only generated if use_oauth is set to True as well.
         """
         self._js: Optional[str] = None  # js fetched by js_url
         self._js_url: Optional[str] = None  # the url to the js, parsed from watch html
 
-        # note: vid_info may eventually be removed. It sounds like it once had
-        # additional formats, but that doesn't appear to still be the case.
-
-        # the url to vid info, parsed from watch html
-        self._vid_info_url: Optional[str] = None
-        self._vid_info_raw: Optional[str] = None  # content fetched by vid_info_url
-        self._vid_info: Optional[Dict] = None  # parsed content of vid_info_raw
+        self._vid_info: Optional[Dict] = None  # content fetched from innertube/player
 
         self._watch_html: Optional[str] = None  # the html of /watch?v=<video_id>
         self._embed_html: Optional[str] = None
         self._player_config_args: Optional[Dict] = None  # inline js in the html containing
-        self._player_response: Optional[Dict] = None
-        # streams
         self._age_restricted: Optional[bool] = None
 
         self._fmt_streams: Optional[List[Stream]] = None
@@ -87,6 +87,16 @@ class YouTube:
         self._title = None
         self._publish_date = None
 
+        self.use_oauth = use_oauth
+        self.allow_oauth_cache = allow_oauth_cache
+
+    def __repr__(self):
+        return f'<pytube.__main__.YouTube object: videoId={self.video_id}>'
+
+    def __eq__(self, o: object) -> bool:
+        # Compare types and urls, if they're same return true, else return false.
+        return type(o) == type(self) and o.watch_url == self.watch_url
+
     @property
     def watch_html(self):
         if self._watch_html:
@@ -102,33 +112,11 @@ class YouTube:
         return self._embed_html
 
     @property
-    def vid_info_raw(self):
-        if self._vid_info_raw:
-            return self._vid_info_raw
-        self._vid_info_raw = request.get(self.vid_info_url)
-        return self._vid_info_raw
-
-    @property
     def age_restricted(self):
         if self._age_restricted:
             return self._age_restricted
         self._age_restricted = extract.is_age_restricted(self.watch_html)
         return self._age_restricted
-
-    @property
-    def vid_info_url(self):
-        if self._vid_info_url:
-            return self._vid_info_url
-
-        if self.age_restricted:
-            self._vid_info_url = extract.video_info_url_age_restricted(
-                self.video_id, self.watch_url
-            )
-        else:
-            self._vid_info_url = extract.video_info_url(
-                video_id=self.video_id, watch_url=self.watch_url
-            )
-        return self._vid_info_url
 
     @property
     def js_url(self):
@@ -151,26 +139,12 @@ class YouTube:
         #  the cache; otherwise, load the cache.
         if youtube_wrapper.__js_url__ != self.js_url:
             self._js = request.get(self.js_url)
-            youtube_wrapper.__js__ = self._js
-            youtube_wrapper.__js_url__ = self.js_url
+            pytube.__js__ = self._js
+            pytube.__js_url__ = self.js_url
         else:
             self._js = youtube_wrapper.__js__
 
         return self._js
-
-    @property
-    def player_response(self):
-        """The player response contains subtitle information and video details."""
-        if self._player_response:
-            return self._player_response
-
-        if isinstance(self.player_config_args["player_response"], str):
-            self._player_response = json.loads(
-                self.player_config_args["player_response"]
-            )
-        else:
-            self._player_response = self.player_config_args["player_response"]
-        return self._player_response
 
     @property
     def initial_data(self):
@@ -180,22 +154,13 @@ class YouTube:
         return self._initial_data
 
     @property
-    def player_config_args(self):
-        if self._player_config_args:
-            return self._player_config_args
-
-        self._player_config_args = self.vid_info
-        # On pre-signed videos, we need to use get_ytplayer_config to fix
-        #  the player_response item
-        # if 'streamingData' not in self.player_config_args['player_response']:
-        if 'streamingData' not in self.player_config_args:
-            config_response = extract.get_ytplayer_config(self.watch_html)
-            if 'args' in config_response:
-                self.player_config_args['player_response'] = config_response['args']['player_response']  # noqa: E501
-            else:
-                self.player_config_args['player_response'] = config_response
-
-        return self._player_config_args
+    def streaming_data(self):
+        """Return streamingData from video info."""
+        if 'streamingData' in self.vid_info:
+            return self.vid_info['streamingData']
+        else:
+            self.bypass_age_gate()
+            return self.vid_info['streamingData']
 
     @property
     def fmt_streams(self):
@@ -209,29 +174,29 @@ class YouTube:
             return self._fmt_streams
 
         self._fmt_streams = []
-        # https://github.com/pytube/pytube/issues/165
-        stream_maps = ["url_encoded_fmt_stream_map"]
-        if "adaptive_fmts" in self.player_config_args:
-            stream_maps.append("adaptive_fmts")
 
-        # unscramble the progressive and adaptive stream manifests.
-        for fmt in stream_maps:
-            if not self.age_restricted and fmt in self.vid_info:
-                extract.apply_descrambler(self.vid_info, fmt)
-            extract.apply_descrambler(self.player_config_args, fmt)
+        stream_manifest = extract.apply_descrambler(self.streaming_data)
 
-            extract.apply_signature(self.player_config_args, fmt, self.js)
+        # If the cached js doesn't work, try fetching a new js file
+        # https://github.com/pytube/pytube/issues/1054
+        try:
+            extract.apply_signature(stream_manifest, self.vid_info, self.js)
+        except exceptions.ExtractError:
+            # To force an update to the js file, we clear the cache and retry
+            self._js = None
+            self._js_url = None
+            youtube_wrapper.__js__ = None
+            youtube_wrapper.__js_url__ = None
+            extract.apply_signature(stream_manifest, self.vid_info, self.js)
 
-            # build instances of :class:`Stream <Stream>`
-            # Initialize stream objects
-            stream_manifest = self.player_config_args[fmt]
-            for stream in stream_manifest:
-                video = Stream(
-                    stream=stream,
-                    player_config_args=self.player_config_args,
-                    monostate=self.stream_monostate,
-                )
-                self._fmt_streams.append(video)
+        # build instances of :class:`Stream <Stream>`
+        # Initialize stream objects
+        for stream in stream_manifest:
+            video = Stream(
+                stream=stream,
+                monostate=self.stream_monostate,
+            )
+            self._fmt_streams.append(video)
 
         self.stream_monostate.title = self.title
         self.stream_monostate.duration = self.length
@@ -256,9 +221,6 @@ class YouTube:
                 elif reason == 'This live stream recording is not available.':
                     raise exceptions.RecordingUnavailable(video_id=self.video_id)
                 else:
-                    if reason == 'Video unavailable':
-                        if extract.is_region_blocked(self.watch_html):
-                            raise exceptions.VideoRegionBlocked(video_id=self.video_id)
                     raise exceptions.VideoUnavailable(video_id=self.video_id)
             elif status == 'LOGIN_REQUIRED':
                 if reason == (
@@ -269,6 +231,8 @@ class YouTube:
             elif status == 'ERROR':
                 if reason == 'Video unavailable':
                     raise exceptions.VideoUnavailable(video_id=self.video_id)
+            elif status == 'LIVE_STREAM':
+                raise exceptions.LiveStreamError(video_id=self.video_id)
 
     @property
     def vid_info(self):
@@ -276,7 +240,32 @@ class YouTube:
 
         :rtype: Dict[Any, Any]
         """
-        return dict(parse_qsl(self.vid_info_raw))
+        if self._vid_info:
+            return self._vid_info
+
+        innertube = InnerTube(use_oauth=self.use_oauth, allow_cache=self.allow_oauth_cache)
+
+        innertube_response = innertube.player(self.video_id)
+        self._vid_info = innertube_response
+        return self._vid_info
+
+    def bypass_age_gate(self):
+        """Attempt to update the vid_info by bypassing the age gate."""
+        innertube = InnerTube(
+            client='ANDROID_EMBED',
+            use_oauth=self.use_oauth,
+            allow_cache=self.allow_oauth_cache
+        )
+        innertube_response = innertube.player(self.video_id)
+
+        playability_status = innertube_response['playabilityStatus'].get('status', None)
+
+        # If we still can't access the video, raise an exception
+        # (tier 3 age restriction)
+        if playability_status == 'UNPLAYABLE':
+            raise exceptions.AgeRestrictedError(self.video_id)
+
+        self._vid_info = innertube_response
 
     @property
     def caption_tracks(self) -> List[youtube_wrapper.Caption]:
@@ -285,7 +274,7 @@ class YouTube:
         :rtype: List[Caption]
         """
         raw_tracks = (
-            self.player_response.get("captions", {})
+            self.vid_info.get("captions", {})
             .get("playerCaptionsTracklistRenderer", {})
             .get("captionTracks", [])
         )
@@ -315,7 +304,7 @@ class YouTube:
         :rtype: str
         """
         thumbnail_details = (
-            self.player_response.get("videoDetails", {})
+            self.vid_info.get("videoDetails", {})
             .get("thumbnail", {})
             .get("thumbnails")
         )
@@ -349,7 +338,20 @@ class YouTube:
         """
         if self._title:
             return self._title
-        self._title = self.player_response['videoDetails']['title']
+
+        try:
+            self._title = self.vid_info['videoDetails']['title']
+        except KeyError:
+            # Check_availability will raise the correct exception in most cases
+            #  if it doesn't, ask for a report.
+            self.check_availability()
+            raise exceptions.PytubeError(
+                (
+                    f'Exception while accessing title of {self.watch_url}. '
+                    'Please file a bug report at https://github.com/pytube/pytube'
+                )
+            )
+
         return self._title
 
     @title.setter
@@ -363,7 +365,7 @@ class YouTube:
 
         :rtype: str
         """
-        return self.player_response.get("videoDetails", {}).get("shortDescription")
+        return self.vid_info.get("videoDetails", {}).get("shortDescription")
 
     @property
     def rating(self) -> float:
@@ -372,7 +374,7 @@ class YouTube:
         :rtype: float
 
         """
-        return self.player_response.get("videoDetails", {}).get("averageRating")
+        return self.vid_info.get("videoDetails", {}).get("averageRating")
 
     @property
     def length(self) -> int:
@@ -380,14 +382,7 @@ class YouTube:
 
         :rtype: int
         """
-        return int(
-            self.player_config_args.get("length_seconds")
-            or (
-                self.player_response.get("videoDetails", {}).get(
-                    "lengthSeconds"
-                )
-            )
-        )
+        return int(self.vid_info.get('videoDetails', {}).get('lengthSeconds'))
 
     @property
     def views(self) -> int:
@@ -395,9 +390,7 @@ class YouTube:
 
         :rtype: int
         """
-        return int(
-            self.player_response.get("videoDetails", {}).get("viewCount")
-        )
+        return int(self.vid_info.get("videoDetails", {}).get("viewCount"))
 
     @property
     def author(self) -> str:
@@ -406,7 +399,7 @@ class YouTube:
         """
         if self._author:
             return self._author
-        self._author = self.player_response.get("videoDetails", {}).get(
+        self._author = self.vid_info.get("videoDetails", {}).get(
             "author", "unknown"
         )
         return self._author
@@ -419,20 +412,23 @@ class YouTube:
     @property
     def keywords(self) -> List[str]:
         """Get the video keywords.
+
         :rtype: List[str]
         """
-        return self.player_response.get('videoDetails', {}).get('keywords', [])
+        return self.vid_info.get('videoDetails', {}).get('keywords', [])
 
     @property
     def channel_id(self) -> str:
         """Get the video poster's channel id.
+
         :rtype: str
         """
-        return self.player_response.get('videoDetails', {}).get('channelId', None)
+        return self.vid_info.get('videoDetails', {}).get('channelId', None)
 
     @property
     def channel_url(self) -> str:
         """Construct the channel url for the video's poster from the channel id.
+
         :rtype: str
         """
         return f'https://www.youtube.com/channel/{self.channel_id}'

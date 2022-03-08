@@ -4,6 +4,7 @@ import urllib.parse
 import warnings
 
 import requests
+from . import constants
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 
@@ -14,8 +15,8 @@ warnings.filterwarnings("ignore", message="numpy.ufunc size changed")
 import pandas as pd
 
 # fix importing errors
-from data_api.youtube_api_utils import *
-import data_api.parsers as P
+from .youtube_api_utils import *
+from . import parsers as P
 
 """
 This script has the YouTubeDataApi class and functions for the API's endpoints.
@@ -30,12 +31,12 @@ class YoutubeDataAPI:
      :param key: YouTube Data API key. Get a YouTube Data API key here: https://console.cloud.google.com/apis/dashboard
     """
 
-    def __init__(self, key, api_version='3', verify_api_key=True):
+    def __init__(self,  api_version='3', verify_api_key=True):
         """
         :param key: YouTube Data API key
         Get a YouTube Data API key here: https://console.cloud.google.com/apis/dashboard
         """
-        self.key = key
+        self.key = constants.api_key
         self.api_version = int(api_version)
 
         if not self.key:
@@ -61,7 +62,7 @@ class YoutubeDataAPI:
         except:
             return False
 
-    def create_session(self, max_retries=2, backoff_factor=.5, status_forcelist=[500, 502, 503, 504], **kwargs):
+    def create_session(self, max_retries=1, backoff_factor=.5, status_forcelist=[500, 502, 503, 504], **kwargs):
         '''
         Creates a requests session to retry API calls when any `status_forcelist` codes are returned.
         :param max_retries: How many times to retry an HTTP request (API call) when a `status_forcelist` code is returned
@@ -718,6 +719,9 @@ class YoutubeDataAPI:
                 http_endpoint += "&pageToken={}".format(next_page_token)
 
             response = self.session.get(http_endpoint)
+            print(http_endpoint)
+            # time.sleep(1000)
+
             response_json = _load_response(response)
             if response_json.get('items'):
                 for item in response_json.get('items'):

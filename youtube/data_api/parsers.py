@@ -1,7 +1,7 @@
 import datetime
 from collections import OrderedDict, Iterable
 
-from data_api.youtube_api_utils import parse_yt_datetime
+from .youtube_api_utils import parse_yt_datetime
 
 """
 This script contains the parsers for the raw json responses

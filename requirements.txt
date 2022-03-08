@@ -86,3 +86,4 @@ webvtt-py==0.4.6
 Werkzeug==1.0.1
 widgetsnbextension==3.5.1
 youtube-dl==2021.4.26
+pandas

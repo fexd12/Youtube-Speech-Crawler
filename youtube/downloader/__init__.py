@@ -8,6 +8,7 @@ from django.utils.text import slugify
 from pydub import AudioSegment
 
 from youtube_wrapper import YouTube
+# from pytube import YouTube
 from youtube.closed_caption import YouTubeClosedCaption, TranscriptsDisabled
 
 AUDIO_CODEC = "pcm_s16le"
@@ -15,17 +16,17 @@ AUDIO_BITRATE = 22050
 AUDIO_CHANNEL = 1
 
 
-def get_youtube_stream(jsonfile, data_dir, closed_caption=['th'], verbose=True):
+def get_youtube_stream(jsonfile, data_dir, closed_caption=None, verbose=True):
     if closed_caption is None:
-        closed_caption = ['th', ]
+        closed_caption = ['br', ]
     module = 'youtube-downloader'
 
     def get_target_path(channel_dir, video):
         target_dir = os.path.join(channel_dir, video['id'])
-        Path(target_dir).mkdir(parents=True, exist_ok=True)
+        Path(target_dir).mkdir(parents=True, exist_ok=False)
         return target_dir
 
-    def extract_segments(channel_dir, video, wav_file, transcript, verbose=False):
+    def extract_segments(channel_dir, video, wav_file, transcript, verbose=verbose):
         if verbose:
             print(f'[{module}] Segment Extraction')
         target_dir = get_target_path(channel_dir, video)
@@ -44,7 +45,7 @@ def get_youtube_stream(jsonfile, data_dir, closed_caption=['th'], verbose=True):
                 # parameters=["-ac", str(AUDIO_CHANNEL)]
             )
 
-    def get_caption(channel_dir, video, verbose=False):
+    def get_caption(channel_dir, video, verbose=verbose):
         if verbose:
             print(f'[{module}] extract closed caption')
         target_dir = get_target_path(channel_dir, video)
@@ -59,6 +60,7 @@ def get_youtube_stream(jsonfile, data_dir, closed_caption=['th'], verbose=True):
                 sort_keys=True, indent=2, ensure_ascii=False
             )
         except TranscriptsDisabled as e:
+            print(e)
             return False, None
         return True, transcript
 
@@ -94,7 +96,7 @@ def get_youtube_stream(jsonfile, data_dir, closed_caption=['th'], verbose=True):
             stream.download(channel_dir, filename=f"{video_id}")
             return True
         except Exception as e:
-            print('error')
+            print('error',e)
             return False
 
     meta = json.load(open(jsonfile, 'r', encoding='utf-8'))
